@@ -31,3 +31,13 @@ fracción de validación 0,05–0,5, μ de FedProx 0–10. Las claves que no est
 
 El contenedor corre sin red, sin capabilities y como UID 1000. Cualquier cambio en `train.py` o
 `fl_model.py` produce una imagen con otro digest y exige una nueva aprobación de cada dueño del dato.
+
+## Datos de prueba: SYNTH-10
+
+`data/synth10/alpha_1/`: el dataset sintético SYNTH-10 (clasificación tabular, 10 clases, 20
+variables) repartido en tres sitios con una partición de Dirichlet de α = 1 (semilla 11), con
+10 618, 10 053 y 9 329 filas. Lo generan `data/generate_dataset.py` y `data/partition_dirichlet.py`
+de `Rekodes/ocean-fl`; `stats.json` trae el recuento por clase de cada sitio.
+
+Son **datos sintéticos y públicos**, para probar el aprendizaje federado de punta a punta: cada
+dataset publicado apunta a su fichero en un commit concreto. Nunca se publican así datos reales.
