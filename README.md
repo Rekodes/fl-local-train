@@ -11,14 +11,16 @@ cambia. La copia de trabajo vive en `Rekodes/ocean-fl` (`algorithm/`).
 | Versión | Imagen (linux/amd64) |
 |---|---|
 | 0.4.0 | `rekodes/fl-local-train@sha256:952454acc822305cb2eeee8791244d25c5b67ccce6600366beaa7a3e39316a8f` |
+| 0.4.1 | `rekodes/fl-local-train@sha256:384de755428a1c200a06f1b4d3fba42ff81cbffeb30de6a39235683a4856b2c5` |
 
 ## Contrato
 
 **Entradas** (solo lectura):
 - `/data/inputs/algoCustomData.json`: hiperparámetros de la ronda y el modelo global en `model`
   (safetensors en base64), verificado contra `model_ref` (`sha256:<hex>`) si llega.
-- `/data/inputs/<datos>.csv`: datos del sitio, un único fichero, con la etiqueta en la última
-  columna.
+- `/data/inputs/<datos>.csv`: datos del sitio, un único fichero, en formato `csv-num20-label10`:
+  cabecera, 20 columnas numéricas y la etiqueta 0..9 al final. Desde la 0.4.1, otro formato sale
+  con código 1 y una sola línea en el log que dice qué falla.
 - Alternativa del laboratorio: el modelo en `/data/persistentStorage/<bucket>/<fichero>`.
 
 **Salidas** (esquema cerrado, nada más sale del sitio):

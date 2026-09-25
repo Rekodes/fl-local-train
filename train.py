@@ -7,7 +7,10 @@ Contrato de E/S (es lo que aprueba el data owner al fijar el digest de la imagen
 
 ENTRADAS (solo lectura)
   /data/inputs/algoCustomData.json          hiperparámetros de la ronda (los escribe ocean-node)
-  /data/inputs/<datos>.csv                  datos locales del sitio (descargados por el nodo)
+  /data/inputs/<datos>.csv                  datos locales del sitio (descargados por el nodo), formato
+                                            `csv-num20-label10`: cabecera, 20 columnas numéricas y la
+                                            etiqueta 0..9 al final; otro formato sale con código 1 y
+                                            una sola línea en el log que dice qué falla
   modelo global w_t, por una de dos vías:
     - `model` en algoCustomData.json: safetensors en base64 (ruta de pago, ocean-app)
     - /data/persistentStorage/<bucket>/<model>  bind-mount de Persistent Storage (laboratorio)
@@ -42,7 +45,7 @@ from torch import nn  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fl_model import MODEL_VERSION, build_model, state_to_float32  # noqa: E402
 
-ALGO_VERSION = "fl-local-train/0.4.0"
+ALGO_VERSION = "fl-local-train/0.4.1"
 
 INPUTS = Path(os.environ.get("FL_INPUTS_DIR", "/data/inputs"))
 OUTPUTS = Path(os.environ.get("FL_OUTPUTS_DIR", "/data/outputs"))
@@ -134,12 +137,33 @@ def load_global_model(hp: dict) -> tuple[dict[str, torch.Tensor], str, str]:
     return load(raw), ref, source
 
 
-def load_site_data(path: Path) -> tuple[np.ndarray, np.ndarray, str]:
+class DataFormatError(ValueError):
+    """Los datos del sitio no tienen el formato que espera el modelo."""
+
+
+def model_io_shape(sd: dict[str, torch.Tensor]) -> tuple[int, int]:
+    """(n_features, n_classes) del modelo global, leídos de su primera y última capa lineal."""
+    weights = sorted((k for k in sd if k.endswith(".weight")), key=lambda k: int(k.split(".")[0]))
+    return sd[weights[0]].shape[1], sd[weights[-1]].shape[0]
+
+
+def load_site_data(path: Path, n_features: int, n_classes: int) -> tuple[np.ndarray, np.ndarray, str]:
+    """CSV con cabecera, `n_features` columnas numéricas y la etiqueta entera en [0, n_classes) al final."""
+    expected = f"cabecera, {n_features} columnas numéricas y la etiqueta (entero 0..{n_classes - 1}) al final"
     raw = path.read_bytes()
     digest = hashlib.sha256(raw).hexdigest()[:16]
-    arr = np.loadtxt(path, delimiter=",", skiprows=1, dtype=np.float32, ndmin=2)
-    x, y = arr[:, :-1], arr[:, -1].astype(np.int64)
-    return x, y, digest
+    try:
+        arr = np.loadtxt(path, delimiter=",", skiprows=1, dtype=np.float32, ndmin=2)
+    except ValueError as e:
+        raise DataFormatError(f"{path.name} no es numérico ({e}); se esperaba {expected}") from None
+    if arr.shape[0] < 2:
+        raise DataFormatError(f"{path.name} tiene {arr.shape[0]} filas; hacen falta al menos 2")
+    if arr.shape[1] != n_features + 1:
+        raise DataFormatError(f"{path.name} tiene {arr.shape[1]} columnas; se esperaba {expected}")
+    labels = arr[:, -1]
+    if not np.all((labels == np.round(labels)) & (labels >= 0) & (labels < n_classes)):
+        raise DataFormatError(f"{path.name} tiene etiquetas fuera de 0..{n_classes - 1}; se esperaba {expected}")
+    return arr[:, :-1], labels.astype(np.int64), digest
 
 
 def split(x, y, frac: float, seed: int):
@@ -174,7 +198,7 @@ def main() -> int:
 
     data_path = find_site_csv()
     global_sd, model_ref, model_source = load_global_model(hp)
-    x_np, y_np, data_digest = load_site_data(data_path)
+    x_np, y_np, data_digest = load_site_data(data_path, *model_io_shape(global_sd))
     site_seed = int(hp["seed"]) ^ int(data_digest[:8], 16)
     (xtr, ytr), (xva, yva) = split(x_np, y_np, float(hp["val_fraction"]), site_seed)
     xtr_t, ytr_t = torch.from_numpy(xtr), torch.from_numpy(ytr)
@@ -278,6 +302,9 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         sys.exit(main())
+    except DataFormatError as e:
+        log(f"datos del sitio incompatibles con {MODEL_VERSION}: {e}")
+        sys.exit(1)
     except Exception:  # el log del algoritmo es lo único que el orquestador verá del fallo
         traceback.print_exc()
         sys.exit(1)
